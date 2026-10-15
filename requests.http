@@ -1,0 +1,86 @@
+# Sample requests for RevisionTrack.
+# Works with the "REST Client" extension in VS Code (click "Send Request" above a request).
+# Run `python seed.py` first so projects 1 to 4 exist.
+
+@base = http://localhost:5000
+
+### List projects (find a valid project id)
+GET {{base}}/projects
+
+### Get one project
+GET {{base}}/projects/1
+
+### Project not found -> 404
+GET {{base}}/projects/99
+
+### CREATE a revision request (project 1 has a limit of 3 and 2 used, so this one is not extra)
+POST {{base}}/projects/1/revision-requests
+Content-Type: application/json
+
+{ "description": "Use a thinner font for the tagline" }
+
+### CREATE another on project 1 (limit now used up, so is_extra becomes true)
+POST {{base}}/projects/1/revision-requests
+Content-Type: application/json
+
+{ "description": "Also add a version for dark backgrounds" }
+
+### CREATE on a project that does not exist -> 404
+POST {{base}}/projects/99/revision-requests
+Content-Type: application/json
+
+{ "description": "This should fail" }
+
+### CREATE with an empty description -> 400
+POST {{base}}/projects/1/revision-requests
+Content-Type: application/json
+
+{ "description": "" }
+
+### CREATE trying to set is_extra yourself -> 400
+POST {{base}}/projects/1/revision-requests
+Content-Type: application/json
+
+{ "description": "Sneaky", "is_extra": false }
+
+### LIST a project's revision requests
+GET {{base}}/projects/2/revision-requests
+
+### LIST filtered by status
+GET {{base}}/projects/2/revision-requests?status=Pending
+
+### LIST with an invalid status -> 400
+GET {{base}}/projects/2/revision-requests?status=banana
+
+### GET one revision request
+GET {{base}}/revision-requests/1
+
+### GET one that does not exist -> 404
+GET {{base}}/revision-requests/999
+
+### UPDATE status
+PATCH {{base}}/revision-requests/2
+Content-Type: application/json
+
+{ "status": "Completed" }
+
+### UPDATE description and status together
+PATCH {{base}}/revision-requests/2
+Content-Type: application/json
+
+{ "description": "Try a warmer colour palette (v2)", "status": "Pending" }
+
+### UPDATE with an invalid status -> 400
+PATCH {{base}}/revision-requests/2
+Content-Type: application/json
+
+{ "status": "Done" }
+
+### UPDATE trying to move it to another project -> 400
+PATCH {{base}}/revision-requests/2
+Content-Type: application/json
+
+{ "project_id": 3 }
+
+### DELETE a revision request -> 204 with no body
+DELETE {{base}}/revision-requests/7
