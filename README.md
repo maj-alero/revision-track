@@ -49,3 +49,10 @@ Full details, validation rules and design decisions are in `docs/api-spec.md`.
 - `models.py`: database tables
 - `seed.py`: resets the database and loads dummy data
 - `requests.http`: sample requests
+
+## Live API
+https://revision-track.onrender.com
+
+Hosted on a free tier: the service sleeps after about 15 minutes of inactivity, so the
+first request may take up to a minute to respond. The database is reset to the dummy
+data whenever the service restarts.
