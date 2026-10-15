@@ -1,5 +1,7 @@
 # RevisionTrack: Data model and API spec (Week 1)
 
+**GitHub Repo:** https://github.com/maj-alero/revision-track
+
 ## 1. Entities
 
 Table and column definitions match `models.py`.
