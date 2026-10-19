@@ -56,3 +56,9 @@ https://revision-track.onrender.com
 Hosted on a free tier: the service sleeps after about 15 minutes of inactivity, so the
 first request may take up to a minute to respond. The database is reset to the dummy
 data whenever the service restarts.
+
+## Issue Logs
+
+- ondelete was passed to db.Column, which crashed; it belongs in ForeignKey.
+- SQLite ignores foreign keys by default, so delete rules did nothing until the pragma listener was added.
+- A non-integer ID like /projects/abc returned Flask’s default HTML 404, so a handler was added for the standard error format.
