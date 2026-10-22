@@ -14,6 +14,7 @@ def enable_sqlite_foreign_keys(dbapi_connection, connection_record):
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
 
+
 class User(db.Model):
     __tablename__ = 'users'
 
@@ -23,8 +24,12 @@ class User(db.Model):
     password_hash = db.Column(db.String(255), nullable=False)
     created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
 
+
 class Client(db.Model):
     __tablename__ = 'clients'
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'email', name='uq_clients_user_id_email'),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(
@@ -34,7 +39,7 @@ class Client(db.Model):
         index=True,
     )
     name = db.Column(db.String(150), nullable=False)
-    email = db.Column(db.String(150), unique=True, nullable=False)
+    email = db.Column(db.String(150), nullable=False)
     created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
 
 
@@ -48,7 +53,7 @@ class Project(db.Model):
     title = db.Column(db.String(150), nullable=False)
     description = db.Column(db.Text, nullable=True)
     user_id = db.Column(
-        db.Integer,     
+        db.Integer,
         db.ForeignKey('users.id', ondelete='CASCADE'),
         nullable=False,
         index=True,
@@ -66,7 +71,6 @@ class Project(db.Model):
         default='Active',
     )
     created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
-
 
 
 class RevisionRequest(db.Model):
@@ -87,5 +91,3 @@ class RevisionRequest(db.Model):
     )
     is_extra = db.Column(db.Boolean, nullable=False, default=False)
     created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
-
-    
