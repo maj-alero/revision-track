@@ -4,128 +4,171 @@
 
 ## 1. Entities
 
-Table and column definitions match `models.py`.
+Table and column definitions match models.py.
 
-**clients** (table `clients`)
+**users**
 | Field | Type | Notes |
 |---|---|---|
-| id | integer | PK |
-| name | string (max 150) | required |
-| email | string (max 150) | required, **unique** |
-| created_at | datetime | set by server |
+| id | integer | Primary key |
+| username | string (max 150) | Required, unique |
+| email | string (max 150) | Required, unique, stored in lowercase |
+| password_hash | string (max 255) | bcrypt hash, never returned by the API |
+| created_at | datetime | Set by the server |
 
-**projects** (table `projects`)
+**clients**
 | Field | Type | Notes |
 |---|---|---|
-| id | integer | PK |
-| title | string (max 150) | required |
-| description | text | optional |
-| client_id | integer | FK to clients.id, **nullable**, `ON DELETE SET NULL` |
-| agreed_revisions | integer | required, default 0, must be >= 0 (database check constraint) |
-| status | string | `Active` (default), `Completed`, `On-hold` |
-| created_at | datetime | set by server |
+| id | integer | Primary key |
+| user_id | integer | Foreign key to users.id, required, ON DELETE CASCADE (the owner) |
+| name | string (max 150) | Required |
+| email | string (max 150) | Required, unique per user (a user cannot add the same client email twice) |
+| created_at | datetime | Set by the server |
 
-**revision_requests** (table `revision_requests`, main entity; model class `RevisionRequest`)
+**projects**
 | Field | Type | Notes |
 |---|---|---|
-| id | integer | PK |
-| project_id | integer | FK to projects.id, required, `ON DELETE CASCADE`, not editable after creation |
-| description | text | required, non-empty (API limits it to 500 characters) |
-| status | string | `Pending` (default), `Completed`, `Rejected` |
-| is_extra | boolean | default false |
-| created_at | datetime | set by server |
+| id | integer | Primary key |
+| user_id | integer | Foreign key to users.id, required, ON DELETE CASCADE (the owner) |
+| client_id | integer | Foreign key to clients.id, nullable, ON DELETE SET NULL |
+| title | string (max 150) | Required |
+| description | text | Optional |
+| agreed_revisions | integer | Required, default 0, must be 0 or more (database check constraint) |
+| status | string | Active (default), Completed or On-hold |
+| created_at | datetime | Set by the server |
+
+**revision_requests** (model class RevisionRequest)
+| Field | Type | Notes |
+|---|---|---|
+| id | integer | Primary key |
+| project_id | integer | Foreign key to projects.id, required, ON DELETE CASCADE, not editable after creation |
+| description | text | Required, non-empty (the API limits it to 500 characters) |
+| status | string | Pending (default), Completed or Rejected |
+| is_extra | boolean | Default false, set by the server on creation, never accepted from the client |
+| created_at | datetime | Set by the server |
 
 ## 2. ERD
 
-![RevisionTrack ERD](erd.svg)
+![ERD image](erd.svg)
 
 Relationships
+- One user owns many clients and many projects.
 - One client has many projects. A project has zero or one client (the link becomes empty if the client is deleted).
 - One project has many revision requests. A revision request belongs to exactly one project.
-- A revision request reaches its client only through its project (no `client_id` on revision requests).
+- A revision request is owned by whoever owns its project (it has no user_id of its own).
 
 Delete rules (enforced by the database, with SQLite foreign keys switched on)
-- Deleting a client keeps its projects; their `client_id` becomes NULL.
+- Deleting a client keeps its projects; their client_id becomes NULL.
 - Deleting a project deletes its revision requests.
+- Deleting a user deletes their clients and projects (there is no endpoint for this yet).
 
-## 3. API spec
+## 3. Authentication
 
-Base path: `/`. All bodies are JSON. Errors use one format:
+- Register with POST /auth/register, then log in with POST /auth/login to receive an access token.
+- Send the token on every other request in the header: `Authorization: Bearer <access_token>`.
+- Tokens last 1 hour. There is no refresh or logout endpoint.
+- Passwords are hashed with bcrypt and are never stored, returned or logged in plain text.
+- Every endpoint except /auth/register and /auth/login needs a valid token.
+
+## 4. Endpoints
+
+All request and response bodies are JSON. Every error uses one format:
 
 ```json
 { "error": { "code": "NOT_FOUND", "message": "Project 99 not found" } }
 ```
 
-### Revision requests (full CRUD)
+### Auth
 
-| Method | Path | Purpose | Request body | Success response | Status codes |
-|---|---|---|---|---|---|
-| POST | `/projects/{project_id}/revision-requests` | Log a new request under a project; server sets `is_extra` | `{ "description": "string" }` | The created request | 201, 400 (invalid body), 404 (project not found) |
-| GET | `/projects/{project_id}/revision-requests` | List a project's requests; optional `?status=Pending\|Completed\|Rejected` | none | Array of requests | 200, 400 (invalid status filter), 404 (project not found) |
-| GET | `/revision-requests/{id}` | Get one request | none | One request | 200, 404 |
-| PATCH | `/revision-requests/{id}` | Update `description` and/or `status` | `{ "description"?: "string", "status"?: "Pending\|Completed\|Rejected" }` | The updated request | 200, 400 (invalid or empty body, unknown field), 404 |
-| DELETE | `/revision-requests/{id}` | Delete a request | none | empty body | 204, 404 |
-
-Example revision request response:
-
-```json
-{
-  "id": 4,
-  "project_id": 1,
-  "description": "Make the logo bigger",
-  "status": "Pending",
-  "is_extra": false,
-  "created_at": "2026-10-13T10:15:00Z"
-}
-```
-
-### Projects (read-only in Week 1, seeded)
-
-| Method | Path | Purpose | Success response | Status codes |
+| Method | Path | Purpose | Request body | Responses |
 |---|---|---|---|---|
-| GET | `/projects` | List projects (so testers can find valid IDs) | Array of projects | 200 |
-| GET | `/projects/{id}` | Get one project | One project | 200, 404 |
+| POST | /auth/register | Create an account | `{ "username", "email", "password" }` | 201: the new user (id, username, email, created_at); 400: invalid input; 409: username or email already registered |
+| POST | /auth/login | Log in | `{ "email", "password" }` | 200: `{ "access_token", "token_type": "Bearer" }`; 400: invalid input; 401: invalid email or password |
 
-Example project response:
+### Clients
+
+| Method | Path | Purpose | Request body | Responses |
+|---|---|---|---|---|
+| POST | /clients | Create a client | `{ "name", "email" }` | 201: the client; 400; 401; 409: you already have a client with this email |
+| GET | /clients | List your clients | none | 200: array; 401 |
+| GET | /clients/{id} | Get one client | none | 200; 401; 403; 404 |
+| PATCH | /clients/{id} | Update a client | `{ "name"?, "email"? }` | 200: the updated client; 400; 401; 403; 404; 409 |
+| DELETE | /clients/{id} | Delete a client (its projects are kept) | none | 204; 401; 403; 404 |
+| GET | /clients/{id}/projects | List a client's projects | none | 200: array; 401; 403; 404 |
+
+### Projects
+
+| Method | Path | Purpose | Request body | Responses |
+|---|---|---|---|---|
+| POST | /projects | Create a project | `{ "title", "agreed_revisions", "description"?, "client_id"?, "status"? }` | 201: the project; 400 (including a client_id that is not yours); 401 |
+| GET | /projects | List your projects | none | 200: array; 401 |
+| GET | /projects/{id} | Get one project | none | 200; 401; 403; 404 |
+| PATCH | /projects/{id} | Update a project | any of `title`, `description`, `client_id`, `agreed_revisions`, `status` | 200: the updated project; 400; 401; 403; 404 |
+| DELETE | /projects/{id} | Delete a project (its revision requests are deleted too) | none | 204; 401; 403; 404 |
+
+### Revision requests
+
+| Method | Path | Purpose | Request body | Responses |
+|---|---|---|---|---|
+| POST | /projects/{project_id}/revision-requests | Log a request under a project; the server sets is_extra | `{ "description" }` | 201: the request; 400; 401; 403; 404 |
+| GET | /projects/{project_id}/revision-requests | List a project's requests; optional `?status=Pending`, `Completed` or `Rejected` | none | 200: array; 400 (invalid status filter); 401; 403; 404 |
+| GET | /revision-requests/{id} | Get one request | none | 200; 401; 403; 404 |
+| PATCH | /revision-requests/{id} | Update description and/or status | `{ "description"?, "status"? }` | 200: the updated request; 400; 401; 403; 404 |
+| DELETE | /revision-requests/{id} | Delete a request | none | 204; 401; 403; 404 |
+
+Example responses
 
 ```json
-{
-  "id": 1,
-  "title": "Bakery logo redesign",
-  "description": "New logo and colour palette",
-  "client_id": 1,
-  "agreed_revisions": 3,
-  "status": "Active",
-  "created_at": "2026-10-01T09:00:00Z"
-}
+{ "id": 4, "project_id": 1, "description": "Make the logo bigger", "status": "Pending", "is_extra": false, "created_at": "2026-10-13T10:15:00" }
 ```
 
-`client_id` is `null` for a project whose client was deleted.
+```json
+{ "id": 1, "title": "Bakery logo redesign", "description": "New logo and colour palette", "client_id": 1, "agreed_revisions": 3, "status": "Active", "created_at": "2026-10-01T09:00:00" }
+```
 
-IDs that are not integers (e.g. `/revision-requests/abc`) return 404 in the standard error format.
+client_id is null for a project whose client was deleted. IDs in URLs that are not positive whole numbers, or are too large for the database, return 404.
 
-## 4. Business rule: `is_extra`
+## 5. Status codes and error codes
 
-When a revision request is created, the server counts the project's existing requests whose status is not `Rejected`. If that count is already **greater than or equal to** `agreed_revisions`, the new request is saved with `is_extra = true`; otherwise `false`.
+| Status | Error code | When |
+|---|---|---|
+| 400 | VALIDATION_ERROR | Invalid or missing input, unknown fields, a status or filter that is not allowed, a client_id that is not yours |
+| 401 | UNAUTHORIZED | No token, an invalid token, or wrong login details |
+| 401 | TOKEN_EXPIRED | The token has expired, log in again |
+| 403 | FORBIDDEN | The record exists but belongs to another user |
+| 404 | NOT_FOUND | The record does not exist, or the URL or ID is invalid |
+| 405 | METHOD_NOT_ALLOWED | The method is not supported for that URL |
+| 409 | CONFLICT | Duplicate username or email at registration, or the same client email twice for one user |
+| 500 | INTERNAL_ERROR | Unexpected server error. The message is generic and the details stay in the server log. |
 
-Examples with `agreed_revisions = 3`:
-- 0, 1 or 2 existing requests -> new request is not extra
-- 3 or more existing requests -> new request is extra
+Checks run in this order: token (401), record exists (404), record is yours (403), then the request body (400).
 
-`is_extra` cannot be set or changed through the API (documented limitation).
+## 6. Business rule: is_extra
 
-## 5. Validation rules
+When a revision request is created, the server counts the project's existing requests whose status is not Rejected. If that count is already greater than or equal to agreed_revisions, the new request is saved with is_extra = true; otherwise false.
 
-- `description` (revision request): required on create, string, not empty or whitespace only, max 500 characters
-- `status`: must be exactly one of the listed values (case-sensitive); anything else returns 400
-- PATCH accepts only `description` and `status`; any other field (including `project_id` and `is_extra`) returns 400, and an empty body returns 400
-- The database does not enforce enum values in SQLite, so API validation is the guard
+Examples with agreed_revisions = 3:
+- 0, 1 or 2 existing requests: the new request is not extra
+- 3 or more existing requests: the new request is extra
 
-## 6. Seed data
+is_extra cannot be set or changed through the API. Changing a request's status or a project's agreed_revisions later does not recompute flags already saved (a documented limitation).
 
-Dummy data only: a few clients (each with a different email, since `email` is unique), projects with different `agreed_revisions` values and statuses, and revision requests including one project that is already over its limit and one `Rejected` request. Run the seed on a fresh database.
+## 7. Validation rules
 
-## 7. Design decisions
+Every request body is validated with Pydantic.
+- Unknown fields are rejected with 400, so nobody can send user_id, project_id or is_extra.
+- Text is trimmed. Emails are trimmed and lowercased and must look like an email address.
+- username: 3 to 150 characters. password: 8 to 72 characters. client name and project title: 1 to 150 characters. project description: up to 2000 characters. revision description: 1 to 500 characters, not only spaces.
+- agreed_revisions: a whole number from 0 to 1000. IDs in bodies must be whole numbers from 1 up. Strings such as "3" and values such as true are not accepted for numbers.
+- status values are case-sensitive: Active, Completed, On-hold for projects and Pending, Completed, Rejected for revision requests.
+- PATCH needs at least one field. null is only allowed for a project's description and client_id (to clear them).
+- The ?status= filter is checked against the allowed values, and anything else returns 400.
+- SQLite does not enforce enum values, so this validation is the guard.
+
+## 8. Seed data
+
+Dummy data only. Two users (demo@example.com and second@example.com, both with the dummy password Password123!), each with their own clients, projects and revision requests, including a project already over its limit, a Rejected request, and a project with no client. The seed script resets the database each time it runs. The second user exists so ownership checks (403) can be demonstrated.
+
+## 9. Design decisions
 
 - **Main entity is revision_requests.** It holds the app's core value (the extra-revision flag), so full CRUD there demonstrates the real purpose. Clients and projects are seeded.
 - **Rejected requests do not count toward the limit.** A rejected request was never carried out, so it should not use up the client's agreed revisions.
