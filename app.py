@@ -339,7 +339,7 @@ def login():
         return problem
 
     user = db.session.query(User).filter_by(email=payload.email).first()
-    # Same message for "no such user" and "wrong password" so emails cannot be probed.
+
     if user is None or not bcrypt.checkpw(payload.password.encode("utf-8"), user.password_hash.encode("utf-8")):
         return error(401, "UNAUTHORIZED", "Invalid email or password")
 
@@ -500,7 +500,7 @@ def delete_project(project_id):
     return "", 204
 
 
-# ---------- Revision requests ----------
+# Revision requests
 
 @app.route("/projects/<int:project_id>/revision-requests", methods=["POST"])
 @jwt_required()
@@ -511,9 +511,6 @@ def create_revision_request(project_id):
     payload, problem = parse(RevisionRequestCreate, request.get_json(silent=True))
     if problem:
         return problem
-
-    # Core rule: if the project has already used up its agreed revisions
-    # (not counting rejected ones), this new request is flagged as extra.
     used = db.session.query(RevisionRequest).filter(
         RevisionRequest.project_id == project.id,
         RevisionRequest.status != "Rejected",
@@ -583,7 +580,7 @@ def delete_revision_request(revision_id):
     return "", 204
 
 
-# ---------- Errors: clients never see a stack trace ----------
+# Errors: clients never see a stack trace 
 
 @jwt.unauthorized_loader
 def missing_token(reason):
@@ -608,6 +605,12 @@ def handle_http_error(err):
         return error(405, "METHOD_NOT_ALLOWED", "Method not allowed for this URL")
     return error(err.code, err.name.upper().replace(" ", "_"), err.description)
 
+
+@app.errorhandler(OverflowError)
+def handle_id_too_large(err):
+    # An id too big for the database can only come from the URL (request bodies are limited
+    # by their schemas), and no record can have it, so it is simply not found.
+    return error(404, "NOT_FOUND", "Resource not found")
 
 @app.errorhandler(Exception)
 def handle_unexpected_error(err):
