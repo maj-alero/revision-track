@@ -37,7 +37,7 @@ ProjectDescription = Annotated[str, StringConstraints(strip_whitespace=True, max
 RevisionDescription = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
 ProjectStatus = Literal["Active", "Completed", "On-hold"]
 RevisionStatus = Literal["Pending", "Completed", "Rejected"]
-IntId = Annotated[int, Field(strict=True, ge=1)]  # strict: "3" and true are not accepted
+IntId = Annotated[int, Field(strict=True, ge=1, le=2147483647)]  # strict: "3" and true are not accepted and 2147483647 is the max for a signed 32-bit integer
 
 
 class Body(BaseModel):
@@ -59,7 +59,7 @@ class UpdateBody(Body):
         return self
 
 
-# ---------- Auth ----------
+# Authentication
 
 class RegisterBody(Body):
     username: Username
@@ -72,7 +72,7 @@ class LoginBody(Body):
     password: Password
 
 
-# ---------- Clients ----------
+# Clients 
 
 class ClientCreate(Body):
     name: Name
@@ -84,7 +84,7 @@ class ClientUpdate(UpdateBody):
     email: Optional[Email] = None
 
 
-# ---------- Projects ----------
+# Projects 
 
 class ProjectCreate(Body):
     title: Name
@@ -104,7 +104,7 @@ class ProjectUpdate(UpdateBody):
     status: Optional[ProjectStatus] = None
 
 
-# ---------- Revision requests ----------
+# Revision requests 
 
 class RevisionRequestCreate(Body):
     description: RevisionDescription
