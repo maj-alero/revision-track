@@ -81,8 +81,3 @@ Every endpoint except `/auth/register` and `/auth/login` needs a token. Try them
 - `requests.http`: sample requests
 - `docs/issue-log.md`: bugs found and how they were fixed
 
-## Issue Logs
-
-- ondelete was passed to db.Column, which crashed; it belongs in ForeignKey.
-- SQLite ignores foreign keys by default, so delete rules did nothing until the pragma listener was added.
-- A non-integer ID like /projects/abc returned Flask’s default HTML 404, so a handler was added for the standard error format.
