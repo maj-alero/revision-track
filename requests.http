@@ -1,86 +1,205 @@
-# Sample requests for RevisionTrack.
+# Sample requests for RevisionTrack (Week 2: authentication added).
 # Works with the "REST Client" extension in VS Code (click "Send Request" above a request).
-# Run `python seed.py` first so projects 1 to 4 exist.
+# Run `python seed.py` first. Seeded ids for the demo user: clients 1-3, projects 1-4, revision requests 1-7.
+# Project 5, client 4 and revision request 8 belong to the second user (useful for 403 tests).
 
-@base = http://localhost:5000
+@base = http://127.0.0.1:5000
 
-### List projects (find a valid project id)
+### ---------- AUTH ----------
+
+### Register a new user -> 201 (the password is never returned)
+POST {{base}}/auth/register
+Content-Type: application/json
+
+{ "username": "new_freelancer", "email": "new@example.com", "password": "Password123!" }
+
+### Register with an email that is already taken -> 409
+POST {{base}}/auth/register
+Content-Type: application/json
+
+{ "username": "someone_else", "email": "demo@example.com", "password": "Password123!" }
+
+### Register with a weak password -> 400
+POST {{base}}/auth/register
+Content-Type: application/json
+
+{ "username": "weak_user", "email": "weak@example.com", "password": "short" }
+
+### Login with the wrong password -> 401
+POST {{base}}/auth/login
+Content-Type: application/json
+
+{ "email": "demo@example.com", "password": "WrongPassword1" }
+
+### Login as the demo user -> 200 with an access token
+# @name login
+POST {{base}}/auth/login
+Content-Type: application/json
+
+{ "email": "demo@example.com", "password": "Password123!" }
+
+###
+@token = {{login.response.body.access_token}}
+
+##List Projects
 GET {{base}}/projects
+Authorization: Bearer {{token}}
+### ---------- CLIENTS ----------
+
+### List my clients
+GET {{base}}/clients
+Authorization: Bearer {{token}}
+
+### Create a client -> 201
+POST {{base}}/clients
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{ "name": "Harbour Books", "email": "orders@harbourbooks.example.com" }
+
+### Create the same client again -> 409
+POST {{base}}/clients
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{ "name": "Harbour Books", "email": "orders@harbourbooks.example.com" }
+
+### Get one client
+GET {{base}}/clients/1
+Authorization: Bearer {{token}}
+
+### Update a client
+PATCH {{base}}/clients/1
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{ "name": "Sunrise Bakery Ltd" }
+
+### Another user's client -> 403
+GET {{base}}/clients/4
+Authorization: Bearer {{token}}
+
+### A client's projects (relationship)
+GET {{base}}/clients/1/projects
+Authorization: Bearer {{token}}
+
+### Delete a client -> 204 (its projects are kept, with no client)
+DELETE {{base}}/clients/3
+Authorization: Bearer {{token}}
+
+### ---------- PROJECTS ----------
+
+### List my projects
+GET {{base}}/projects
+Authorization: Bearer {{token}}
+
+### Create a project -> 201
+POST {{base}}/projects
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{ "title": "Shop sign design", "description": "Sign for the front window", "client_id": 1, "agreed_revisions": 2 }
+
+### Create a project with invalid data -> 400
+POST {{base}}/projects
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{ "title": "", "agreed_revisions": -1, "status": "Done" }
+
+### Create a project for someone else's client -> 400
+POST {{base}}/projects
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{ "title": "Sneaky project", "client_id": 4, "agreed_revisions": 1 }
 
 ### Get one project
 GET {{base}}/projects/1
+Authorization: Bearer {{token}}
 
-### Project not found -> 404
-GET {{base}}/projects/99
+### Update a project
+PATCH {{base}}/projects/1
+Content-Type: application/json
+Authorization: Bearer {{token}}
 
-### CREATE a revision request (project 1 has a limit of 3 and 2 used, so this one is not extra)
+{ "status": "Completed", "agreed_revisions": 4 }
+
+### Detach a project from its client
+PATCH {{base}}/projects/1
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{ "client_id": null }
+
+### Another user's project -> 403
+GET {{base}}/projects/5
+Authorization: Bearer {{token}}
+
+### Delete a project -> 204 (its revision requests are deleted too)
+DELETE {{base}}/projects/4
+Authorization: Bearer {{token}}
+
+### ---------- REVISION REQUESTS ----------
+
+### Log a request (project 1 has a limit of 3 and 2 used, so this one is not extra)
 POST {{base}}/projects/1/revision-requests
 Content-Type: application/json
+Authorization: Bearer {{token}}
 
 { "description": "Use a thinner font for the tagline" }
 
-### CREATE another on project 1 (limit now used up, so is_extra becomes true)
+### Log another (limit used up, so is_extra becomes true)
 POST {{base}}/projects/1/revision-requests
 Content-Type: application/json
+Authorization: Bearer {{token}}
 
 { "description": "Also add a version for dark backgrounds" }
 
-### CREATE on a project that does not exist -> 404
-POST {{base}}/projects/99/revision-requests
-Content-Type: application/json
-
-{ "description": "This should fail" }
-
-### CREATE with an empty description -> 400
+### Log a request with the wrong fields -> 400
 POST {{base}}/projects/1/revision-requests
 Content-Type: application/json
-
-{ "description": "" }
-
-### CREATE trying to set is_extra yourself -> 400
-POST {{base}}/projects/1/revision-requests
-Content-Type: application/json
+Authorization: Bearer {{token}}
 
 { "description": "Sneaky", "is_extra": false }
 
-### LIST a project's revision requests
+### Log a request on someone else's project -> 403
+POST {{base}}/projects/5/revision-requests
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{ "description": "This should be blocked" }
+
+### List a project's requests
 GET {{base}}/projects/2/revision-requests
+Authorization: Bearer {{token}}
 
-### LIST filtered by status
+### List filtered by status
 GET {{base}}/projects/2/revision-requests?status=Pending
+Authorization: Bearer {{token}}
 
-### LIST with an invalid status -> 400
-GET {{base}}/projects/2/revision-requests?status=banana
-
-### GET one revision request
+### Get one request
 GET {{base}}/revision-requests/1
+Authorization: Bearer {{token}}
 
-### GET one that does not exist -> 404
-GET {{base}}/revision-requests/999
-
-### UPDATE status
+### Update status
 PATCH {{base}}/revision-requests/2
 Content-Type: application/json
+Authorization: Bearer {{token}}
 
 { "status": "Completed" }
 
-### UPDATE description and status together
+### Update with an invalid status -> 400
 PATCH {{base}}/revision-requests/2
 Content-Type: application/json
-
-{ "description": "Try a warmer colour palette (v2)", "status": "Pending" }
-
-### UPDATE with an invalid status -> 400
-PATCH {{base}}/revision-requests/2
-Content-Type: application/json
+Authorization: Bearer {{token}}
 
 { "status": "Done" }
 
-### UPDATE trying to move it to another project -> 400
-PATCH {{base}}/revision-requests/2
-Content-Type: application/json
-
-{ "project_id": 3 }
-
-### DELETE a revision request -> 204 with no body
+### Delete a request -> 204
 DELETE {{base}}/revision-requests/7
+Authorization: Bearer {{token}}
+
+### Request that does not exist -> 404
+GET {{base}}/revision-requests/999
+Authorization: Bearer {{token}}
