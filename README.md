@@ -83,27 +83,31 @@ Every endpoint except `/auth/register` and `/auth/login` needs a token. Try them
 
 ## Issue Log
 
-## Issue 1: `ondelete` passed to `db.Column` crashed the app
+Issue 1: `ondelete` passed to `db.Column` crashed the app
 - **Problem:** I wrote `db.Column(..., ondelete='SET NULL')` on `Project.client_id`. `Column` does not accept `ondelete`, so the app crashed when the models loaded.
 - **Options considered:** put the rule on the column (not supported); define a separate table-level foreign key constraint; pass `ondelete` to `db.ForeignKey`.
 - **Fix:** moved the rule into `db.ForeignKey('clients.id', ondelete='SET NULL')`. The same applies to the `CASCADE` rule on `revision_requests.project_id`.
 - **Verified:** the models load, and deleting a client leaves its projects with `client_id` set to `NULL`.
-## Issue 2: SQLite ignored foreign keys, so delete rules did nothing
+
+Issue 2: SQLite ignored foreign keys, so delete rules did nothing
 - **Problem:** SQLite does not enforce foreign keys unless they are switched on for every connection. Without that, `SET NULL` and `CASCADE` silently did nothing, and a revision request could point at a project that did not exist.
 - **Options considered:** handle every delete in application code; move to PostgreSQL straight away; switch foreign keys on for each SQLite connection.
 - **Fix:** added a connection listener in `models.py` that runs `PRAGMA foreign_keys=ON` for every SQLite connection. This keeps SQLite for easy local running, and the database enforces the rules.
 - **Verified:** a revision request with a missing `project_id` is rejected, deleting a client keeps its projects, and deleting a project removes its revision requests.
-## Issue 3: Unknown or non-integer URLs returned Flask's default HTML 404
+
+Issue 3: Unknown or non-integer URLs returned Flask's default HTML 404
 - **Problem:** a request such as `/projects/abc` returned Flask's HTML error page, which broke the rule that every error uses the same JSON format.
 - **Options considered:** leave the default page; return JSON errors only from inside each route (this misses URLs that match no route); add one global error handler.
 - **Fix:** added a global handler, later extended to every HTTP error and to unexpected errors, so every response uses `{ "error": { "code", "message" } }`.
 - **Verified:** `/projects/abc`, unknown URLs, and wrong methods (405) all return the standard JSON error.
-## Issue 4: Client emails were unique across all users
+
+Issue 4: Client emails were unique across all users
 - **Problem:** `clients.email` was `unique=True`, which was written when the app had a single freelancer. After adding users, a second freelancer could not save a client whose email another freelancer already had. The rejection also revealed that someone else had that client.
 - **Options considered:** keep the global rule (blocks legitimate use and leaks information); remove uniqueness (the same user could add duplicates); make it unique per user.
 - **Fix:** replaced `unique=True` with `UniqueConstraint('user_id', 'email', name='uq_clients_user_id_email')`. Adding the same client email twice as one user returns 409. Emails are trimmed and lowercased on input.
 - **Verified:** two users can save the same client email, and the same user saving it twice is rejected (both covered by automated checks).
-## Issue 5: Very large IDs returned a 500 error instead of a 404
+
+Issue 5: Very large IDs returned a 500 error instead of a 404
 - **Problem:** a request such as `/clients/99999999999999999999` made SQLite raise an `OverflowError`, and the API answered with a 500 error. The same happened for a huge `client_id` in a request body.
 - **Options considered:** limit the ID range in the URL converter (tried this, but Flask's router then returned a wrong 405 for some methods, so I dropped it); check the range inside every route (repeated code); add one `OverflowError` handler for URLs and a maximum value for body IDs.
 - **Fix:** an `OverflowError` handler returns the normal 404 (no record can have an ID that large), and `IntId` in `schemas.py` caps body IDs at 2,147,483,647, so those return 400.
