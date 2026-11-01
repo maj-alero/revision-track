@@ -91,7 +91,7 @@ pytest
 The tests use an in-memory database and never touch your real data. Add coverage with `pytest --cov --cov-report=term-missing`. What is and is not tested is in [`docs/test-notes.md`](docs/test-notes.md).
  
 ## Data model
-![RevisionTrack ERD](docs/erd.png)
+![RevisionTrack ERD](docs/erd.svg)
  
 - A user owns many clients and many projects.
 - A client has many projects. A project has zero or one client.
