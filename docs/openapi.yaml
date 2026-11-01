@@ -25,7 +25,7 @@ info:
 servers:
 - url: http://localhost:5000
   description: Local
-- url: https://YOUR-SERVICE.onrender.com
+- url: https://revision-track.onrender.com
   description: Live 
 security:
 - bearerAuth: []
