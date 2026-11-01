@@ -1,0 +1,8 @@
+[run]
+source = .
+omit =
+    tests/*
+    seed.py
+
+[report]
+show_missing = True

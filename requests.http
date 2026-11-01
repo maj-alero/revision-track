@@ -1,9 +1,9 @@
-# Sample requests for RevisionTrack (Week 2: authentication added).
+# Sample requests for RevisionTrack (Week 3: pagination, rate limits and live docs at /docs).
 # Works with the "REST Client" extension in VS Code (click "Send Request" above a request).
 # Run `python seed.py` first. Seeded ids for the demo user: clients 1-3, projects 1-4, revision requests 1-7.
 # Project 5, client 4 and revision request 8 belong to the second user (useful for 403 tests).
 
-@base = http://127.0.0.1:5000
+@base = http://localhost:5000
 
 ### ---------- AUTH ----------
 
@@ -41,9 +41,11 @@ Content-Type: application/json
 ###
 @token = {{login.response.body.access_token}}
 
-##List Projects
+### ---------- NOT LOGGED IN ----------
+
+### No token -> 401
 GET {{base}}/projects
-Authorization: Bearer {{token}}
+
 ### ---------- CLIENTS ----------
 
 ### List my clients
@@ -203,3 +205,22 @@ Authorization: Bearer {{token}}
 ### Request that does not exist -> 404
 GET {{base}}/revision-requests/999
 Authorization: Bearer {{token}}
+
+### ---------- PAGINATION (all list endpoints) ----------
+
+### Page 1 with 2 items per page (response has items, page, per_page, total, pages)
+GET {{base}}/projects?page=1&per_page=2
+Authorization: Bearer {{token}}
+
+### Page 2
+GET {{base}}/projects?page=2&per_page=2
+Authorization: Bearer {{token}}
+
+### Invalid paging values -> 400
+GET {{base}}/projects?page=0&per_page=500
+Authorization: Bearer {{token}}
+
+### ---------- DOCUMENTATION (no login needed) ----------
+
+### Interactive Swagger page: open {{base}}/docs in a browser
+GET {{base}}/openapi.yaml

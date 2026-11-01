@@ -1,0 +1,951 @@
+openapi: 3.0.3
+info:
+  title: RevisionTrack API
+  version: 3.0.0
+  description: 'A REST API for freelancers to log client revision requests against projects and flag the ones that
+    go over the agreed limit.
+
+
+    **Authentication.** Register with `POST /auth/register`, log in with `POST /auth/login`, then send `Authorization:
+    Bearer <access_token>` on every other request. Tokens last 1 hour.
+
+
+    **Ownership.** You only see and change your own data. A record that belongs to someone else returns 403; a missing
+    one returns 404.
+
+
+    **Errors** always look like `{"error": {"code": "...", "message": "..."}}`.
+
+
+    **Pagination.** List endpoints take `page` and `per_page` (default 20, maximum 100) and return `items`, `page`,
+    `per_page`, `total` and `pages`.
+
+
+    All data is dummy data.'
+servers:
+- url: http://localhost:5000
+  description: Local
+- url: https://YOUR-SERVICE.onrender.com
+  description: Live 
+security:
+- bearerAuth: []
+tags:
+- name: Auth
+- name: Clients
+- name: Projects
+- name: Revision requests
+paths:
+  /auth/register:
+    post:
+      tags:
+      - Auth
+      summary: Create an account
+      security: []
+      description: Rate limited to 10 requests per hour per client address. The password is hashed with bcrypt and
+        never returned.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterBody'
+            example:
+              username: demo_freelancer
+              email: demo@example.com
+              password: Password123!
+      responses:
+        '201':
+          description: Account created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+              example:
+                id: 1
+                username: demo_freelancer
+                email: demo@example.com
+                created_at: '2026-10-01T09:00:00'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /auth/login:
+    post:
+      tags:
+      - Auth
+      summary: Log in and get a token
+      security: []
+      description: 'Rate limited to 10 requests per minute per client address. Send the token on every other request
+        as `Authorization: Bearer <access_token>`. Tokens last 1 hour.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginBody'
+            example:
+              email: demo@example.com
+              password: Password123!
+      responses:
+        '200':
+          description: Logged in
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Token'
+              example:
+                access_token: eyJhbGciOi...
+                token_type: Bearer
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /clients:
+    get:
+      tags:
+      - Clients
+      summary: List your clients
+      parameters: &id003
+      - &id006
+        $ref: '#/components/parameters/Page'
+      - &id007
+        $ref: '#/components/parameters/PerPage'
+      responses:
+        '200':
+          description: A page of your clients
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientPage'
+              example:
+                items:
+                - &id001
+                  id: 1
+                  name: Sunrise Bakery
+                  email: hello@sunrisebakery.example.com
+                  created_at: '2026-10-01T09:00:00'
+                page: 1
+                per_page: 20
+                total: 1
+                pages: 1
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags:
+      - Clients
+      summary: Create a client
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientCreate'
+            example:
+              name: Sunrise Bakery
+              email: hello@sunrisebakery.example.com
+      responses:
+        '201':
+          description: Client created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Client'
+              example: *id001
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /clients/{client_id}:
+    parameters:
+    - &id002
+      $ref: '#/components/parameters/ClientId'
+    get:
+      tags:
+      - Clients
+      summary: Get one client
+      responses:
+        '200':
+          description: The client
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Client'
+              example: *id001
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags:
+      - Clients
+      summary: Update a client
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientUpdate'
+            example:
+              name: Sunrise Bakery Ltd
+      responses:
+        '200':
+          description: The updated client
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Client'
+              example: *id001
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    delete:
+      tags:
+      - Clients
+      summary: Delete a client
+      description: The client's projects are kept; their `client_id` becomes `null`.
+      responses:
+        '204':
+          description: Deleted (no body)
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /clients/{client_id}/projects:
+    parameters:
+    - *id002
+    get:
+      tags:
+      - Clients
+      summary: List a client's projects
+      parameters: *id003
+      responses:
+        '200':
+          description: A page of the client's projects
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectPage'
+              example:
+                items:
+                - &id004
+                  id: 1
+                  title: Bakery logo redesign
+                  description: New logo and colour palette
+                  client_id: 1
+                  agreed_revisions: 3
+                  status: Active
+                  created_at: '2026-10-01T09:00:00'
+                page: 1
+                per_page: 20
+                total: 1
+                pages: 1
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /projects:
+    get:
+      tags:
+      - Projects
+      summary: List your projects
+      parameters: *id003
+      responses:
+        '200':
+          description: A page of your projects
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectPage'
+              example:
+                items:
+                - *id004
+                page: 1
+                per_page: 20
+                total: 1
+                pages: 1
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags:
+      - Projects
+      summary: Create a project
+      description: '`client_id`, if given, must be one of your own clients.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectCreate'
+            example:
+              title: Bakery logo redesign
+              description: New logo and colour palette
+              client_id: 1
+              agreed_revisions: 3
+      responses:
+        '201':
+          description: Project created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+              example: *id004
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /projects/{project_id}:
+    parameters:
+    - &id005
+      $ref: '#/components/parameters/ProjectId'
+    get:
+      tags:
+      - Projects
+      summary: Get one project
+      responses:
+        '200':
+          description: The project
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+              example: *id004
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags:
+      - Projects
+      summary: Update a project
+      description: 'Send `client_id: null` to detach the project from its client.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectUpdate'
+            example:
+              status: Completed
+              agreed_revisions: 4
+      responses:
+        '200':
+          description: The updated project
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+              example: *id004
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+      - Projects
+      summary: Delete a project
+      description: The project's revision requests are deleted with it.
+      responses:
+        '204':
+          description: Deleted (no body)
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /projects/{project_id}/revision-requests:
+    parameters:
+    - *id005
+    get:
+      tags:
+      - Revision requests
+      summary: List a project's revision requests
+      parameters:
+      - $ref: '#/components/parameters/StatusFilter'
+      - *id006
+      - *id007
+      responses:
+        '200':
+          description: A page of revision requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RevisionRequestPage'
+              example:
+                items:
+                - &id008
+                  id: 4
+                  project_id: 1
+                  description: Make the logo bigger
+                  status: Pending
+                  is_extra: false
+                  created_at: '2026-10-13T10:15:00'
+                page: 1
+                per_page: 20
+                total: 1
+                pages: 1
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags:
+      - Revision requests
+      summary: Log a revision request
+      description: 'The server sets `is_extra`: it is `true` when the project has already used its agreed revisions
+        (rejected requests do not count).'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevisionRequestCreate'
+            example:
+              description: Make the logo bigger
+      responses:
+        '201':
+          description: Revision request created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RevisionRequest'
+              example: *id008
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /revision-requests/{revision_id}:
+    parameters:
+    - $ref: '#/components/parameters/RevisionId'
+    get:
+      tags:
+      - Revision requests
+      summary: Get one revision request
+      responses:
+        '200':
+          description: The revision request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RevisionRequest'
+              example: *id008
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags:
+      - Revision requests
+      summary: Update a revision request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevisionRequestUpdate'
+            example:
+              status: Completed
+      responses:
+        '200':
+          description: The updated revision request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RevisionRequest'
+              example: *id008
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags:
+      - Revision requests
+      summary: Delete a revision request
+      responses:
+        '204':
+          description: Deleted (no body)
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Log in with POST /auth/login, then paste the access_token here.
+  parameters:
+    ClientId:
+      name: client_id
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+    ProjectId:
+      name: project_id
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+    RevisionId:
+      name: revision_id
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+    Page:
+      name: page
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+      description: Page number, starting at 1
+    PerPage:
+      name: per_page
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+      description: Items per page (1 to 100)
+    StatusFilter:
+      name: status
+      in: query
+      required: false
+      schema:
+        type: string
+        enum:
+        - Pending
+        - Completed
+        - Rejected
+      description: Only requests with this status (case-sensitive)
+  responses:
+    BadRequest:
+      description: Invalid input
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: VALIDATION_ERROR
+              message: 'description: String should have at least 1 character'
+    Unauthorized:
+      description: Not logged in, invalid or expired token, or wrong login details
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: UNAUTHORIZED
+              message: 'Log in and send the header: Authorization: Bearer <token>'
+    Forbidden:
+      description: The record belongs to another user
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: FORBIDDEN
+              message: You do not have access to this project
+    NotFound:
+      description: The record or URL does not exist
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: NOT_FOUND
+              message: Project 99 not found
+    Conflict:
+      description: Duplicate username or email
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: CONFLICT
+              message: You already have a client with this email
+    TooManyRequests:
+      description: Rate limit reached; see the Retry-After header
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: TOO_MANY_REQUESTS
+              message: Too many attempts, please wait a moment and try again
+  schemas:
+    Error:
+      type: object
+      required:
+      - error
+      properties:
+        error:
+          type: object
+          required:
+          - code
+          - message
+          properties:
+            code:
+              type: string
+              example: NOT_FOUND
+            message:
+              type: string
+              example: Project 99 not found
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        created_at:
+          type: string
+          format: date-time
+    RegisterBody:
+      type: object
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 150
+          pattern: ^[A-Za-z0-9_.-]+$
+        email:
+          type: string
+          maxLength: 150
+          format: email
+        password:
+          type: string
+          minLength: 8
+          maxLength: 72
+          format: password
+          description: 8 to 72 characters
+      required:
+      - username
+      - email
+      - password
+      additionalProperties: false
+    LoginBody:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+      required:
+      - email
+      - password
+      additionalProperties: false
+    Token:
+      type: object
+      properties:
+        access_token:
+          type: string
+        token_type:
+          type: string
+          example: Bearer
+    Client:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        created_at:
+          type: string
+          format: date-time
+    ClientCreate:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 150
+        email:
+          type: string
+          maxLength: 150
+          format: email
+      required:
+      - name
+      - email
+      additionalProperties: false
+    ClientUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 150
+        email:
+          type: string
+          maxLength: 150
+          format: email
+      additionalProperties: false
+    Project:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        client_id:
+          type: integer
+          nullable: true
+        agreed_revisions:
+          type: integer
+        status:
+          type: string
+          enum:
+          - Active
+          - Completed
+          - On-hold
+        created_at:
+          type: string
+          format: date-time
+    ProjectCreate:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 150
+        description:
+          type: string
+          maxLength: 2000
+          nullable: true
+        client_id:
+          type: integer
+          minimum: 1
+          nullable: true
+        agreed_revisions:
+          type: integer
+          minimum: 0
+          maximum: 1000
+        status:
+          type: string
+          enum:
+          - Active
+          - Completed
+          - On-hold
+          default: Active
+      required:
+      - title
+      - agreed_revisions
+      additionalProperties: false
+    ProjectUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 150
+        description:
+          type: string
+          maxLength: 2000
+          nullable: true
+        client_id:
+          type: integer
+          minimum: 1
+          nullable: true
+        agreed_revisions:
+          type: integer
+          minimum: 0
+          maximum: 1000
+        status:
+          type: string
+          enum:
+          - Active
+          - Completed
+          - On-hold
+      additionalProperties: false
+    RevisionRequest:
+      type: object
+      properties:
+        id:
+          type: integer
+        project_id:
+          type: integer
+        description:
+          type: string
+        status:
+          type: string
+          enum:
+          - Pending
+          - Completed
+          - Rejected
+        is_extra:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+    RevisionRequestCreate:
+      type: object
+      properties:
+        description:
+          type: string
+          minLength: 1
+          maxLength: 500
+      required:
+      - description
+      additionalProperties: false
+    RevisionRequestUpdate:
+      type: object
+      properties:
+        description:
+          type: string
+          minLength: 1
+          maxLength: 500
+        status:
+          type: string
+          enum:
+          - Pending
+          - Completed
+          - Rejected
+      additionalProperties: false
+    ClientPage:
+      type: object
+      required:
+      - items
+      - page
+      - per_page
+      - total
+      - pages
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Client'
+        page:
+          type: integer
+          example: 1
+        per_page:
+          type: integer
+          example: 20
+        total:
+          type: integer
+          example: 1
+        pages:
+          type: integer
+          example: 1
+    ProjectPage:
+      type: object
+      required:
+      - items
+      - page
+      - per_page
+      - total
+      - pages
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Project'
+        page:
+          type: integer
+          example: 1
+        per_page:
+          type: integer
+          example: 20
+        total:
+          type: integer
+          example: 1
+        pages:
+          type: integer
+          example: 1
+    RevisionRequestPage:
+      type: object
+      required:
+      - items
+      - page
+      - per_page
+      - total
+      - pages
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/RevisionRequest'
+        page:
+          type: integer
+          example: 1
+        per_page:
+          type: integer
+          example: 20
+        total:
+          type: integer
+          example: 1
+        pages:
+          type: integer
+          example: 1

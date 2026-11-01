@@ -2,7 +2,7 @@
 
 A small REST API for freelancers to log client revision requests against projects and flag the ones that go over the agreed limit. Each freelancer has an account and only sees their own clients, projects and requests.
 
-- **Stack:** Python, Flask, Flask-SQLAlchemy, SQLite, Pydantic, JWT (Flask-JWT-Extended), bcrypt
+- **Stack:** Python, Flask, Flask-SQLAlchemy, SQLite, Pydantic, JWT (Flask-JWT-Extended), bcrypt, Flask-Limiter, Flask-Cors, pytest
 - **Docs:** see the `docs/` folder (idea one-pager, work plan, ERD, API spec, issue log)
 - **All data is dummy data.** Never put real personal data or passwords in this project.
 
@@ -11,27 +11,33 @@ A small REST API for freelancers to log client revision requests against project
 
 Hosted on a free tier: the service sleeps after about 15 minutes of inactivity, so the first request may take up to a minute. The database is reset to the dummy data whenever the service restarts.
 
+## The Problem
+An independent freelancer (designer, developer, writer) agrees a fixed number of revisions with each client. Clients keep asking for "one small change", and the freelancer loses track of how many revisions were agreed, how many were used, and which ones should have been billed as extra.
+ 
+RevisionTrack records every revision request against a project. The server marks a request as **extra** when the project has already used its agreed revisions (rejected requests do not count), so scope creep becomes visible and billable.
+
 ## How to run
 
 ```bash
 python -m venv venv
-source venv/bin/activate          # Windows: venv\Scripts\activate
+source venv/bin/activate              # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env              # Windows: copy .env.example .env
-python seed.py                    # resets the database and loads dummy data
-flask run                         # API at http://localhost:5000
+cp .env.example .env                  # Windows: copy .env.example .env
 ```
-
-In `.env`, replace `JWT_SECRET_KEY` with your own random value (the app will not start without one):
-
+ 
+Open `.env` and replace `JWT_SECRET_KEY` with your own random value (the app refuses to start without one):
+ 
 ```bash
 python -c "import secrets; print(secrets.token_hex(32))"
 ```
-
-Running `python seed.py` again wipes the database and reloads the dummy data. Set `FLASK_DEBUG=0` in any deployed environment.
-
-## Demo logins (dummy passwords, for testing only)
-
+ 
+```bash
+python seed.py                        # resets the database and loads dummy data
+flask run                             # API at http://localhost:5000
+```
+ 
+Then open **http://localhost:5000/docs** for the interactive API documentation, and log in with a demo account:
+ 
 | Email | Password |
 |---|---|
 | demo@example.com | Password123! |
@@ -39,12 +45,15 @@ Running `python seed.py` again wipes the database and reloads the dummy data. Se
 
 ## Using the API
 
-1. Log in to get a token:
-   ```bash
-   curl -X POST http://localhost:5000/auth/login -H "Content-Type: application/json" \
-     -d '{"email": "demo@example.com", "password": "Password123!"}'
-   ```
-2. Send the token with every other request: `Authorization: Bearer <access_token>` (tokens last 1 hour).
+```bash
+# 1. log in and copy the access_token from the response
+curl -X POST http://localhost:5000/auth/login -H "Content-Type: application/json" \
+  -d '{"email": "demo@example.com", "password": "Password123!"}'
+ 
+# 2. send it on every other request
+curl http://localhost:5000/projects -H "Authorization: Bearer <access_token>"
+```
+`requests.http` has a sample request for every endpoint, including the error cases (VS Code "REST Client" extension).
 
 | Status | Meaning |
 |---|---|
@@ -70,45 +79,74 @@ Running `python seed.py` again wipes the database and reloads the dummy data. Se
 | GET | `/projects/{project_id}/revision-requests` | List a project's requests, optional `?status=` |
 | GET, PATCH, DELETE | `/revision-requests/{id}` | Get, update or delete a request |
 
-Every endpoint except `/auth/register` and `/auth/login` needs a token. Try them with `requests.http` (VS Code "REST Client" extension). Full details, validation rules and design decisions are in `docs/api-spec.md`.
+Every endpoint except register and login needs `Authorization: Bearer <token>`. List endpoints accept `?page=` and `?per_page=` (default 20, maximum 100). Full details, validation rules and design decisions are in `docs/api-spec.md`.
 
-## Project layout
-
-- `app.py`: Flask app, routes, authentication and error handling
-- `models.py`: database tables
-- `schemas.py`: request validation
-- `seed.py`: resets the database and loads dummy data
-- `requests.http`: sample requests
-- `docs/issue-log.md`: bugs found and how they were fixed
-
-## Issue Log
-
-Issue 1: `ondelete` passed to `db.Column` crashed the app
-- **Problem:** I wrote `db.Column(..., ondelete='SET NULL')` on `Project.client_id`. `Column` does not accept `ondelete`, so the app crashed when the models loaded.
-- **Options considered:** put the rule on the column (not supported); define a separate table-level foreign key constraint; pass `ondelete` to `db.ForeignKey`.
-- **Fix:** moved the rule into `db.ForeignKey('clients.id', ondelete='SET NULL')`. The same applies to the `CASCADE` rule on `revision_requests.project_id`.
-- **Verified:** the models load, and deleting a client leaves its projects with `client_id` set to `NULL`.
-
-Issue 2: SQLite ignored foreign keys, so delete rules did nothing
-- **Problem:** SQLite does not enforce foreign keys unless they are switched on for every connection. Without that, `SET NULL` and `CASCADE` silently did nothing, and a revision request could point at a project that did not exist.
-- **Options considered:** handle every delete in application code; move to PostgreSQL straight away; switch foreign keys on for each SQLite connection.
-- **Fix:** added a connection listener in `models.py` that runs `PRAGMA foreign_keys=ON` for every SQLite connection. This keeps SQLite for easy local running, and the database enforces the rules.
-- **Verified:** a revision request with a missing `project_id` is rejected, deleting a client keeps its projects, and deleting a project removes its revision requests.
-
-Issue 3: Unknown or non-integer URLs returned Flask's default HTML 404
-- **Problem:** a request such as `/projects/abc` returned Flask's HTML error page, which broke the rule that every error uses the same JSON format.
-- **Options considered:** leave the default page; return JSON errors only from inside each route (this misses URLs that match no route); add one global error handler.
-- **Fix:** added a global handler, later extended to every HTTP error and to unexpected errors, so every response uses `{ "error": { "code", "message" } }`.
-- **Verified:** `/projects/abc`, unknown URLs, and wrong methods (405) all return the standard JSON error.
-
-Issue 4: Client emails were unique across all users
-- **Problem:** `clients.email` was `unique=True`, which was written when the app had a single freelancer. After adding users, a second freelancer could not save a client whose email another freelancer already had. The rejection also revealed that someone else had that client.
-- **Options considered:** keep the global rule (blocks legitimate use and leaks information); remove uniqueness (the same user could add duplicates); make it unique per user.
-- **Fix:** replaced `unique=True` with `UniqueConstraint('user_id', 'email', name='uq_clients_user_id_email')`. Adding the same client email twice as one user returns 409. Emails are trimmed and lowercased on input.
-- **Verified:** two users can save the same client email, and the same user saving it twice is rejected (both covered by automated checks).
-
-Issue 5: Very large IDs returned a 500 error instead of a 404
-- **Problem:** a request such as `/clients/99999999999999999999` made SQLite raise an `OverflowError`, and the API answered with a 500 error. The same happened for a huge `client_id` in a request body.
-- **Options considered:** limit the ID range in the URL converter (tried this, but Flask's router then returned a wrong 405 for some methods, so I dropped it); check the range inside every route (repeated code); add one `OverflowError` handler for URLs and a maximum value for body IDs.
-- **Fix:** an `OverflowError` handler returns the normal 404 (no record can have an ID that large), and `IntId` in `schemas.py` caps body IDs at 2,147,483,647, so those return 400.
-- **Verified:** huge, zero, negative and decimal IDs all return 404, and a huge `client_id` in a body returns 400. All 151 automated checks pass.
+Errors always look like `{ "error": { "code": "NOT_FOUND", "message": "..." } }`.
+ 
+## Running the tests
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+The tests use an in-memory database and never touch your real data. Add coverage with `pytest --cov --cov-report=term-missing`. What is and is not tested is in [`docs/test-notes.md`](docs/test-notes.md).
+ 
+## Data model
+![RevisionTrack ERD](docs/erd.png)
+ 
+- A user owns many clients and many projects.
+- A client has many projects. A project has zero or one client.
+- A project has many revision requests. A request is owned through its project.
+- Deleting a client keeps its projects (their `client_id` becomes empty). Deleting a project deletes its requests.
+## Architecture
+A layered monolith: one Flask app, one SQLite database, and the same pipeline for every request.
+ 
+```mermaid
+flowchart TD
+  C[API client] -->|HTTPS + JSON| A
+  subgraph A[Flask application]
+    direction TB
+    K[Checks: JWT auth, ownership, validation, error handler] --> R[Routes and the is_extra rule]
+    R --> M[SQLAlchemy models]
+  end
+  M --> D[(SQLite: foreign keys, unique, check constraints)]
+```
+ 
+| File | Job |
+|---|---|
+| `app.py` | Routes, authentication, ownership checks, pagination, error handling |
+| `schemas.py` | Validation and sanitisation of every request body |
+| `models.py` | Tables, relationships, indexes and delete rules |
+| `seed.py` | Resets the database and loads dummy data |
+| `docs/openapi.yaml` | The API contract (a test checks it matches the real routes) |
+| `tests/` | The test suite |
+ 
+## Key decisions
+- **Revision requests carry the core logic.** The `is_extra` flag is set only by the server, so it cannot be faked.
+- **Rejected requests do not count** toward the agreed limit, because they were never carried out.
+- **A relational database.** The data is relational and the database itself enforces foreign keys, delete rules, unique values and a non-negative limit.
+- **Projects outlive clients,** so work history is not lost when a client relationship ends.
+- **Stateless JWT login with bcrypt.** Simple and scalable, but tokens cannot be revoked, so they expire after 1 hour.
+- **Ownership is checked in code,** because the database cannot know that a client and a project belong to the same user. Everything else the database can enforce, it does.
+- **One error format and one global error handler,** so clients never see a stack trace.
+The full list, with trade-offs, is in `docs/api-spec.md`. Bugs found and how they were fixed are in [`docs/issue-log.md`](docs/issue-log.md).
+ 
+## Security and performance
+Short notes are in [`docs/security-and-performance.md`](docs/security-and-performance.md). In brief: secrets only in environment variables, bcrypt password hashing, input validation and sanitisation, rate limits on login and register, CORS closed unless configured, pagination on every list, and indexes on the fields queries filter by.
+ 
+## Deploying (Render, free tier)
+The repo includes a `render.yaml` blueprint.
+1. Push the repo to GitHub.
+2. In Render choose **New**, then **Blueprint**, pick the repo and apply. Render generates a random `JWT_SECRET_KEY` for you.
+3. When the deploy finishes, open `<your-service>.onrender.com/docs`.
+4. Replace the live link in this README and the `servers` address in `docs/openapi.yaml`.
+Without the blueprint, create a **Web Service** with: build command `pip install -r requirements.txt`; start command `python seed.py && gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4`; environment variables `JWT_SECRET_KEY` (a random value), `FLASK_DEBUG=0`, `BEHIND_PROXY=1` and `PYTHON_VERSION=3.11.9`.
+ 
+## Limitations
+- SQLite on a free host is wiped on restart, so the live data resets (fine for dummy data, not for real use). A real deployment would use PostgreSQL.
+- The schema is created directly and there are no migrations yet.
+- The `is_extra` check and the insert are separate steps, so two simultaneous requests could both read the same count.
+- The rate limiter keeps its counters in memory, so it works per process (hence one worker).
+- Tokens cannot be revoked before they expire, and there is no logout, refresh or password reset.
+- A 403 confirms that a record exists (the work guide asks for 403).
+## Declaration
+See [`docs/reflection-and-declaration.md`](docs/reflection-and-declaration.md) for the technical reflection and the declaration of my own work, libraries used and AI use.

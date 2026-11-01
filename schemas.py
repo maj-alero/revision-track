@@ -23,6 +23,12 @@ def check_password(value):
         raise ValueError("must be 8 to 72 characters long")
     return value
 
+def check_text(value):
+    """Reject control characters (null bytes, escape codes) that have no place in plain text."""
+    if any((ord(ch) < 32 and ch not in "\n\t") or ord(ch) == 127 for ch in value):
+        raise ValueError("contains characters that are not allowed")
+    return value
+
 
 # Reusable field types
 Email = Annotated[
@@ -31,10 +37,10 @@ Email = Annotated[
     AfterValidator(check_email),
 ]
 Password = Annotated[str, AfterValidator(check_password)]
-Username = Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=150)]
-Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=150)]
-ProjectDescription = Annotated[str, StringConstraints(strip_whitespace=True, max_length=2000)]
-RevisionDescription = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
+Username = Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=150, pattern=r"^[A-Za-z0-9_.-]+$")]
+Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=150), AfterValidator(check_text)]
+ProjectDescription = Annotated[str, StringConstraints(strip_whitespace=True, max_length=2000), AfterValidator(check_text)]
+RevisionDescription = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500), AfterValidator(check_text)]
 ProjectStatus = Literal["Active", "Completed", "On-hold"]
 RevisionStatus = Literal["Pending", "Completed", "Rejected"]
 IntId = Annotated[int, Field(strict=True, ge=1, le=2147483647)]  # strict: "3" and true are not accepted and 2147483647 is the max for a signed 32-bit integer

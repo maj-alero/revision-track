@@ -1,195 +1,18 @@
-# import os
-
-# from dotenv import load_dotenv
-# from flask import Flask, jsonify, request
-# from flask_bcrypt import Bcrypt
-
-# from models import Project, RevisionRequest, db
-
-# load_dotenv()
-
-# app = Flask(__name__)
-# app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", "sqlite:///revisiontrack.db")
-# app.json.sort_keys = False
-# db.init_app(app)
-
-# REVISION_STATUSES = ["Pending", "Completed", "Rejected"]
-
-# #HELPER FUNCTIONS
-
-# def error(status, code, message):
-#     """Every error uses the same JSON shape."""
-#     return jsonify({"error": {"code": code, "message": message}}), status
-
-
-# def project_json(project):
-#     return {
-#         "id": project.id,
-#         "title": project.title,
-#         "description": project.description,
-#         "client_id": project.client_id,
-#         "agreed_revisions": project.agreed_revisions,
-#         "status": project.status,
-#         "created_at": project.created_at.isoformat(),
-#     }
-
-
-# def revision_json(revision):
-#     return {
-#         "id": revision.id,
-#         "project_id": revision.project_id,
-#         "description": revision.description,
-#         "status": revision.status,
-#         "is_extra": revision.is_extra,
-#         "created_at": revision.created_at.isoformat(),
-#     }
-
-
-# def validate_body(data, allowed_fields):
-#     """Return an error message if the request body is invalid, otherwise None."""
-#     if not isinstance(data, dict) or not data:
-#         return "Request body must be a non-empty JSON object"
-#     unknown = set(data) - set(allowed_fields)
-#     if unknown:
-#         return "Not allowed: " + ", ".join(sorted(unknown))
-#     if "description" in data:
-#         text = data["description"]
-#         if not isinstance(text, str) or not text.strip() or len(text.strip()) > 500:
-#             return "description must be a non-empty string of at most 500 characters"
-#     if "status" in data and data["status"] not in REVISION_STATUSES:
-#         return "status must be one of: " + ", ".join(REVISION_STATUSES)
-#     return None
-
-# #Authentication endpoints
-
-# @app.route("auth/register", methods=["POST"])
-# def register():
-#     data = request.get_json(silent=True)
-#     if not data or "username" not in data or "email" not in data or "password" not in data:
-#         return error(400, "VALIDATION_ERROR", "username, email, and password are required")
-    
-#     username = data["username"].strip()
-#     email = data["email"].strip()
-#     password = data["password"]
-
-#     if not username or not email or not password:
-#         return error(400, "VALIDATION_ERROR", "username, email, and password cannot be empty")
-
-#     # Check if the username or email already exists
-#     if User.query.filter((User.username == username) | (User.email == email)).first():
-#         return error(400, "VALIDATION_ERROR", "Username or email already exists")
-
-#     # Hash the password
-#     hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
-
-#     # Create a new user
-#     new_user = User(username=username, email=email, password_hash=hashed_password)
-#     db.session.add(new_user)
-#     db.session.commit()
-
-#     return jsonify({"message": "User registered successfully"}), 201
-
-# #Projects (read-only endpoints) 
-
-# @app.route("/projects", methods=["GET"])
-# def list_projects():
-#     projects = Project.query.order_by(Project.id).all()
-#     return jsonify([project_json(p) for p in projects])
-
-
-# @app.route("/projects/<int:project_id>", methods=["GET"])
-# def get_project(project_id):
-#     project = db.get_or_404(Project, project_id, description=f"Project {project_id} not found")
-#     return jsonify(project_json(project))
-
-
-# #Revision Requests CRUD endpoints
-
-# @app.route("/projects/<int:project_id>/revision-requests", methods=["POST"])
-# def create_revision_request(project_id):
-#     project = db.get_or_404(Project, project_id, description=f"Project {project_id} not found")
-
-#     data = request.get_json(silent=True)
-#     problem = validate_body(data, ["description"])
-#     if problem:
-#         return error(400, "VALIDATION_ERROR", problem)
-
-    
-#     used = RevisionRequest.query.filter(
-#         RevisionRequest.project_id == project.id,
-#         RevisionRequest.status != "Rejected",
-#     ).count()
-
-#     revision = RevisionRequest(
-#         project_id=project.id,
-#         description=data["description"].strip(),
-#         is_extra=used >= project.agreed_revisions,
-#     )
-#     db.session.add(revision)
-#     db.session.commit()
-#     return jsonify(revision_json(revision)), 201
-
-
-# @app.route("/projects/<int:project_id>/revision-requests", methods=["GET"])
-# def list_revision_requests(project_id):
-#     db.get_or_404(Project, project_id, description=f"Project {project_id} not found")
-
-#     query = RevisionRequest.query.filter_by(project_id=project_id)
-#     status = request.args.get("status")
-#     if status is not None:
-#         if status not in REVISION_STATUSES:
-#             return error(400, "VALIDATION_ERROR", "status must be one of: " + ", ".join(REVISION_STATUSES))
-#         query = query.filter_by(status=status)
-
-#     revisions = query.order_by(RevisionRequest.id).all()
-#     return jsonify([revision_json(r) for r in revisions])
-
-
-# @app.route("/revision-requests/<int:revision_id>", methods=["GET"])
-# def get_revision_request(revision_id):
-#     revision = db.get_or_404(RevisionRequest, revision_id, description=f"Revision request {revision_id} not found")
-#     return jsonify(revision_json(revision))
-
-
-# @app.route("/revision-requests/<int:revision_id>", methods=["PATCH"])
-# def update_revision_request(revision_id):
-#     revision = db.get_or_404(RevisionRequest, revision_id, description=f"Revision request {revision_id} not found")
-
-#     data = request.get_json(silent=True)
-#     problem = validate_body(data, ["description", "status"])
-#     if problem:
-#         return error(400, "VALIDATION_ERROR", problem)
-
-#     if "description" in data:
-#         revision.description = data["description"].strip()
-#     if "status" in data:
-#         revision.status = data["status"]
-#     db.session.commit()
-#     return jsonify(revision_json(revision))
-
-
-# @app.route("/revision-requests/<int:revision_id>", methods=["DELETE"])
-# def delete_revision_request(revision_id):
-#     revision = db.get_or_404(RevisionRequest, revision_id, description=f"Revision request {revision_id} not found")
-#     db.session.delete(revision)
-#     db.session.commit()
-#     return "", 204
-
-
-# @app.errorhandler(404)
-# def not_found(err):
-#     return error(404, "NOT_FOUND", err.description)
-
+import math
 import os
 from datetime import timedelta
 
 import bcrypt
 from dotenv import load_dotenv
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
+from flask_cors import CORS
 from flask_jwt_extended import JWTManager, create_access_token, get_jwt_identity, jwt_required
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 from werkzeug.exceptions import HTTPException
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from models import Client, Project, RevisionRequest, User, db
 from schemas import (
@@ -205,14 +28,37 @@ from schemas import (
 
 load_dotenv()
 
+jwt_secret = os.environ["JWT_SECRET_KEY"]
+if len(jwt_secret) < 32 or jwt_secret.startswith("CHANGE_ME"):
+    raise RuntimeError(
+        "JWT_SECRET_KEY must be a random value of at least 32 characters. "
+        'Generate one with: python -c "import secrets; print(secrets.token_hex(32))"'
+    )
+
 app = Flask(__name__)
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", "sqlite:///revisiontrack.db")
-app.config["JWT_SECRET_KEY"] = os.environ["JWT_SECRET_KEY"]  # required: set it in .env
+app.config["JWT_SECRET_KEY"] = jwt_secret
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=1)
+app.config["RATELIMIT_HEADERS_ENABLED"] = True
+app.config["BCRYPT_ROUNDS"] = int(os.getenv("BCRYPT_ROUNDS", "12"))  # tests lower this for speed
 db.init_app(app)
 jwt = JWTManager(app)
 
+# Behind the host's proxy (Render) every request seems to come from the proxy, which would make
+# one shared rate limit for everyone. BEHIND_PROXY=1 makes Flask read the real client address instead.
+if os.getenv("BEHIND_PROXY") == "1":
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1)
+
+cors_origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()]
+CORS(app, origins=cors_origins, allow_headers=["Content-Type", "Authorization"])
+
+# Rate limiting applies to the login and register routes only (limits are per client address).
+limiter = Limiter(get_remote_address, app=app, storage_uri="memory://")
+LOGIN_LIMIT = "10 per minute"
+REGISTER_LIMIT = "10 per hour"
+
 REVISION_STATUSES = ["Pending", "Completed", "Rejected"]
+MAX_PER_PAGE = 100
 
 
 # Helper functions
@@ -240,6 +86,39 @@ def parse(schema, data):
             msg = err["msg"].removeprefix("Value error, ")
             parts.append(f"{field}: {msg}" if field else msg)
         return None, error(400, "VALIDATION_ERROR", "; ".join(parts))
+
+
+def paginate(query, to_dict):
+    """Apply ?page= and ?per_page= to an ordered query.
+    Returns (body, None) or (None, error_response)."""
+    page = request.args.get("page", "1")
+    per_page = request.args.get("per_page", "20")
+    if not (page.isdecimal() and per_page.isdecimal() and len(page) <= 7 and len(per_page) <= 3):
+        return None, error(400, "VALIDATION_ERROR", "page and per_page must be positive whole numbers")
+    page, per_page = int(page), int(per_page)
+    if page < 1 or not 1 <= per_page <= MAX_PER_PAGE:
+        return None, error(400, "VALIDATION_ERROR", f"page must be 1 or more and per_page must be 1 to {MAX_PER_PAGE}")
+
+    total = query.count()
+    items = query.offset((page - 1) * per_page).limit(per_page).all()
+    body = {
+        "items": [to_dict(item) for item in items],
+        "page": page,
+        "per_page": per_page,
+        "total": total,
+        "pages": math.ceil(total / per_page),
+    }
+    return body, None
+
+
+def is_extra(project):
+    """Core rule: True if the project has already used up its agreed revisions.
+    Rejected requests do not count, because they were never carried out."""
+    used = db.session.query(RevisionRequest).filter(
+        RevisionRequest.project_id == project.id,
+        RevisionRequest.status != "Rejected",
+    ).count()
+    return used >= project.agreed_revisions
 
 
 def get_owned_client(client_id):
@@ -316,12 +195,13 @@ def revision_to_dict(revision):
 # Authentication endpoints (register/login) 
 
 @app.route("/auth/register", methods=["POST"])
+@limiter.limit(REGISTER_LIMIT)
 def register():
     payload, problem = parse(RegisterBody, request.get_json(silent=True))
     if problem:
         return problem
 
-    password_hash = bcrypt.hashpw(payload.password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    password_hash = bcrypt.hashpw(payload.password.encode("utf-8"), bcrypt.gensalt(rounds=app.config["BCRYPT_ROUNDS"])).decode("utf-8")
     user = User(username=payload.username, email=payload.email, password_hash=password_hash)
     db.session.add(user)
     try:
@@ -333,6 +213,7 @@ def register():
 
 
 @app.route("/auth/login", methods=["POST"])
+@limiter.limit(LOGIN_LIMIT)
 def login():
     payload, problem = parse(LoginBody, request.get_json(silent=True))
     if problem:
@@ -369,8 +250,11 @@ def create_client():
 @app.route("/clients", methods=["GET"])
 @jwt_required()
 def get_clients():
-    clients = db.session.query(Client).filter_by(user_id=me()).order_by(Client.id).all()
-    return jsonify([client_to_dict(c) for c in clients]), 200
+    query = db.session.query(Client).filter_by(user_id=me()).order_by(Client.id)
+    body, problem = paginate(query, client_to_dict)
+    if problem:
+        return problem
+    return jsonify(body), 200
 
 
 @app.route("/clients/<int:client_id>", methods=["GET"])
@@ -420,11 +304,14 @@ def get_client_projects(client_id):
     client, problem = get_owned_client(client_id)
     if problem:
         return problem
-    projects = db.session.query(Project).filter_by(client_id=client.id).order_by(Project.id).all()
-    return jsonify([project_to_dict(p) for p in projects]), 200
+    query = db.session.query(Project).filter_by(client_id=client.id).order_by(Project.id)
+    body, problem = paginate(query, project_to_dict)
+    if problem:
+        return problem
+    return jsonify(body), 200
 
 
-# ---------- Projects ----------
+# Projects endpoints
 
 @app.route("/projects", methods=["POST"])
 @jwt_required()
@@ -454,8 +341,11 @@ def create_project():
 @app.route("/projects", methods=["GET"])
 @jwt_required()
 def get_projects():
-    projects = db.session.query(Project).filter_by(user_id=me()).order_by(Project.id).all()
-    return jsonify([project_to_dict(p) for p in projects]), 200
+    query = db.session.query(Project).filter_by(user_id=me()).order_by(Project.id)
+    body, problem = paginate(query, project_to_dict)
+    if problem:
+        return problem
+    return jsonify(body), 200
 
 
 @app.route("/projects/<int:project_id>", methods=["GET"])
@@ -511,15 +401,11 @@ def create_revision_request(project_id):
     payload, problem = parse(RevisionRequestCreate, request.get_json(silent=True))
     if problem:
         return problem
-    used = db.session.query(RevisionRequest).filter(
-        RevisionRequest.project_id == project.id,
-        RevisionRequest.status != "Rejected",
-    ).count()
 
     revision = RevisionRequest(
         project_id=project.id,
         description=payload.description,
-        is_extra=used >= project.agreed_revisions,
+        is_extra=is_extra(project),
     )
     db.session.add(revision)
     db.session.commit()
@@ -540,8 +426,10 @@ def get_revision_requests(project_id):
             return error(400, "VALIDATION_ERROR", "status must be one of: " + ", ".join(REVISION_STATUSES))
         query = query.filter_by(status=status)
 
-    revisions = query.order_by(RevisionRequest.id).all()
-    return jsonify([revision_to_dict(r) for r in revisions]), 200
+    body, problem = paginate(query.order_by(RevisionRequest.id), revision_to_dict)
+    if problem:
+        return problem
+    return jsonify(body), 200
 
 
 @app.route("/revision-requests/<int:revision_id>", methods=["GET"])
@@ -580,7 +468,41 @@ def delete_revision_request(revision_id):
     return "", 204
 
 
-# Errors: clients never see a stack trace 
+# ---------- API documentation (Swagger UI reads docs/openapi.yaml) ----------
+
+SWAGGER_PAGE = """<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>RevisionTrack API docs</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.17.14/swagger-ui.css">
+</head>
+<body>
+<div id="swagger-ui"></div>
+<script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.17.14/swagger-ui-bundle.js"></script>
+<script>SwaggerUIBundle({ url: "/openapi.yaml", dom_id: "#swagger-ui" });</script>
+</body>
+</html>"""
+
+
+@app.route("/docs", methods=["GET"])
+def api_docs():
+    return SWAGGER_PAGE
+
+
+@app.route("/openapi.yaml", methods=["GET"])
+def openapi_spec():
+    return send_from_directory( os.path.join(app.root_path, "docs"), "openapi.yaml", mimetype="application/yaml")
+
+
+# ---------- Errors: clients never see a stack trace ----------
+
+@app.after_request
+def add_security_headers(response):
+    response.headers["X-Content-Type-Options"] = "nosniff"  # browsers must trust the declared type
+    response.headers["Cache-Control"] = "no-store"  # tokens and personal data are not cached
+    return response
+
 
 @jwt.unauthorized_loader
 def missing_token(reason):
@@ -603,6 +525,8 @@ def handle_http_error(err):
         return error(404, "NOT_FOUND", "Resource not found")
     if err.code == 405:
         return error(405, "METHOD_NOT_ALLOWED", "Method not allowed for this URL")
+    if err.code == 429:
+        return error(429, "TOO_MANY_REQUESTS", "Too many attempts, please wait a moment and try again")
     return error(err.code, err.name.upper().replace(" ", "_"), err.description)
 
 
@@ -611,6 +535,7 @@ def handle_id_too_large(err):
     # An id too big for the database can only come from the URL (request bodies are limited
     # by their schemas), and no record can have it, so it is simply not found.
     return error(404, "NOT_FOUND", "Resource not found")
+
 
 @app.errorhandler(Exception)
 def handle_unexpected_error(err):

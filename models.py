@@ -15,40 +15,40 @@ def enable_sqlite_foreign_keys(dbapi_connection, connection_record):
         cursor.close()
 
 
+
 class User(db.Model):
     __tablename__ = 'users'
-
+ 
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(150), unique=True, nullable=False)
     email = db.Column(db.String(150), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
     created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
-
-
+ 
+ 
 class Client(db.Model):
     __tablename__ = 'clients'
     __table_args__ = (
         db.UniqueConstraint('user_id', 'email', name='uq_clients_user_id_email'),
     )
-
+ 
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(
         db.Integer,
         db.ForeignKey('users.id', ondelete='CASCADE'),
         nullable=False,
-        index=True,
     )
     name = db.Column(db.String(150), nullable=False)
     email = db.Column(db.String(150), nullable=False)
     created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
-
-
+ 
+ 
 class Project(db.Model):
     __tablename__ = 'projects'
     __table_args__ = (
         db.CheckConstraint('agreed_revisions >= 0', name='ck_projects_agreed_revisions_nonneg'),
     )
-
+ 
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(150), nullable=False)
     description = db.Column(db.Text, nullable=True)
@@ -71,17 +71,20 @@ class Project(db.Model):
         default='Active',
     )
     created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
-
-
+ 
+ 
 class RevisionRequest(db.Model):
     __tablename__ = 'revision_requests'
-
+    __table_args__ = (
+        # Queries filter by project_id, often with status too (the is_extra count and ?status=).
+        db.Index('ix_revision_requests_project_id_status', 'project_id', 'status'),
+    )
+ 
     id = db.Column(db.Integer, primary_key=True)
     project_id = db.Column(
         db.Integer,
         db.ForeignKey('projects.id', ondelete='CASCADE'),
         nullable=False,
-        index=True,
     )
     description = db.Column(db.Text, nullable=False)
     status = db.Column(
